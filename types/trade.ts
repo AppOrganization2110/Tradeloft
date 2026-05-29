@@ -26,8 +26,10 @@ export type SetupSignals = {
 
 export type AnalysisSetup = {
   id: string;
+  rank: number;
   asset: string;
   symbol: string;
+  assetClass: 'crypto' | 'stock';
   direction: 'Long' | 'Short';
   signals: SetupSignals;
   positiveCount: number;
@@ -42,6 +44,7 @@ export type AnalysisSetup = {
   duration: string;
   explanation: string;
   invalidation: string;
+  analysisNarrative: string;
   timestamp: string;
 };
 

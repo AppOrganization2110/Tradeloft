@@ -6,18 +6,44 @@ import { AnalysisResult, MarketMode, QuoteResponse, UniverseMode } from '@/types
 const modeOptions: MarketMode[] = ['Nur Krypto', 'Nur Aktien', 'Beides'];
 const universeOptions: UniverseMode[] = ['Standard', 'Erweitert', 'Manuell'];
 
-function renderBadge(value: string) {
-  return (
-    <span className="rounded-full border border-slate-700 bg-bg-tertiary px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-200">
-      {value}
-    </span>
-  );
+const SIGNAL_LABELS: Record<string, string> = {
+  trend: 'Trend',
+  momentum: 'Momentum',
+  volume: 'Volumen',
+  macro: 'Makro',
+  relative: 'Relative Stärke',
+};
+
+function signalCellClass(value: string) {
+  if (value.includes('✅')) return 'signal-success border rounded-xl p-3';
+  if (value.includes('⚠️')) return 'signal-warning border rounded-xl p-3';
+  return 'signal-error border rounded-xl p-3';
 }
 
-function statusClass(value: string) {
-  if (value.includes('✅')) return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20';
-  if (value.includes('⚠')) return 'bg-amber-400/10 text-amber-200 border border-amber-300/20';
-  return 'bg-rose-500/10 text-rose-200 border border-rose-500/20';
+function rankBadgeClass(rank: number) {
+  if (rank === 1) return 'rank-badge-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.18em]';
+  if (rank === 2) return 'rank-badge-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]';
+  return 'rank-badge-3 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]';
+}
+
+function rankLabel(rank: number) {
+  if (rank === 1) return 'Platz 1 · Top-Setup';
+  if (rank === 2) return 'Platz 2 · Alternative';
+  return 'Platz 3 · Watchlist';
+}
+
+function formatPrice(value: number | null | undefined) {
+  return value !== null && value !== undefined
+    ? value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '–';
+}
+
+function getPriceForAsset(symbol: string, quoteData: QuoteResponse | null): number | null {
+  if (!quoteData) return null;
+  const cryptoItem = quoteData.crypto.find((item) => item.symbol === symbol);
+  if (cryptoItem?.price != null) return cryptoItem.price;
+  const stockItem = quoteData.stock.find((item) => item.symbol === symbol);
+  return stockItem?.price ?? null;
 }
 
 export default function AnalysisRunner({
@@ -47,177 +73,214 @@ export default function AnalysisRunner({
   stopTrading: boolean;
   quoteData: QuoteResponse | null;
 }) {
-  const nextAsset = useMemo(() => {
+  const previewLabel = useMemo(() => {
     if (manualAsset.trim()) return manualAsset.trim().toUpperCase();
-    if (mode === 'Nur Krypto') return 'BTC';
-    if (mode === 'Nur Aktien') return 'AAPL';
-    return 'ETH';
+    if (mode === 'Nur Krypto') return 'BTC · ETH · SOL';
+    if (mode === 'Nur Aktien') return 'AAPL · NVDA · AMZN';
+    return 'BTC · AAPL · ETH';
   }, [manualAsset, mode]);
 
   return (
     <section className="space-y-4">
-      <div className="rounded-3xl border border-slate-700 bg-bg-secondary p-6 shadow-card">
+      {/* Eingabe-Panel */}
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-card">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">Analyse-Runner</h2>
-            <p className="mt-1 text-sm text-text-secondary">
-              Eingabe von Kapital, Asset-Modus und Universum. Danach Red-Flag-Check und Top-3-Setups.
+            <h2 className="text-xl font-semibold text-[var(--text-primary)]">Analyse-Runner</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Kapital, Asset-Modus und Universum einstellen → Analyse liefert Top-3 Setups (Platz 1–3).
             </p>
           </div>
           <button
             type="button"
             onClick={onRunAnalysis}
             disabled={stopTrading}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-3xl bg-accent-cyan px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:bg-slate-600"
+            className="btn-primary"
           >
             Analyse starten
           </button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-3">
-          <label className="space-y-2 text-sm text-slate-300">
+          <label className="space-y-2 text-sm text-[var(--text-secondary)]">
             Kapital (€)
             <input
               type="number"
               value={capital}
               min={100}
               onChange={(event) => onChangeCapital(Number(event.target.value))}
-              className="w-full rounded-2xl border border-slate-700 bg-bg-tertiary px-4 py-3 text-white outline-none transition focus:border-accent-cyan"
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-cyan)]"
             />
           </label>
 
-          <label className="space-y-2 text-sm text-slate-300">
+          <label className="space-y-2 text-sm text-[var(--text-secondary)]">
             Asset-Modus
             <select
               value={mode}
               onChange={(event) => onChangeMode(event.target.value as MarketMode)}
-              className="w-full rounded-2xl border border-slate-700 bg-bg-tertiary px-4 py-3 text-white outline-none transition focus:border-accent-cyan"
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-cyan)]"
             >
               {modeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
+                <option key={option} value={option}>{option}</option>
               ))}
             </select>
           </label>
 
-          <label className="space-y-2 text-sm text-slate-300">
+          <label className="space-y-2 text-sm text-[var(--text-secondary)]">
             Asset-Universum
             <select
               value={universe}
               onChange={(event) => onChangeUniverse(event.target.value as UniverseMode)}
-              className="w-full rounded-2xl border border-slate-700 bg-bg-tertiary px-4 py-3 text-white outline-none transition focus:border-accent-cyan"
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-cyan)]"
             >
               {universeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
+                <option key={option} value={option}>{option}</option>
               ))}
             </select>
           </label>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <label className="space-y-2 text-sm text-slate-300">
-            Manuelles Asset (optional)
+          <label className="space-y-2 text-sm text-[var(--text-secondary)]">
+            Manuelles Asset (optional — überschreibt Platz 1)
             <input
               type="text"
-              placeholder="z. B. AAPL oder BTC"
+              placeholder="z. B. AAPL, NVDA, BTC, ETH"
               value={manualAsset}
               onChange={(event) => onChangeManualAsset(event.target.value)}
-              className="w-full rounded-2xl border border-slate-700 bg-bg-tertiary px-4 py-3 text-white outline-none transition focus:border-accent-cyan"
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-cyan)]"
             />
           </label>
 
-          <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4 text-sm text-slate-300">
-            <p className="font-semibold text-white">Vorschau</p>
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4 text-sm text-[var(--text-secondary)]">
+            <p className="font-semibold text-[var(--text-primary)]">Vorschau</p>
             <p className="mt-3 leading-6">
-              Analysiere {manualAsset.trim() ? manualAsset.toUpperCase() : nextAsset} im Modus {mode}. Ergebnisse werden auf Basis live abrufbarer Marktdaten gerendert.
+              Modus: <span className="font-medium text-[var(--accent-cyan)]">{mode}</span> · Universum: <span className="font-medium text-[var(--accent-cyan)]">{universe}</span>
             </p>
-            {quoteData ? (
-              <p className="mt-3 text-slate-400">Letzte Quote: {quoteData.timestamp}</p>
-            ) : (
-              <p className="mt-3 text-slate-400">Live-Daten werden geladen …</p>
-            )}
+            <p className="mt-1 leading-6">
+              Analysierte Assets: <span className="font-mono text-[var(--text-primary)]">{previewLabel}</span>
+            </p>
+            <p className="mt-3 text-xs text-[var(--text-muted)]">Quote-Stand: {quoteData ? quoteData.timestamp : 'lade…'}</p>
           </div>
         </div>
       </div>
 
+      {/* Analyse-Ergebnis */}
       {analysisResult ? (
         <div className="space-y-4">
-          <div className="rounded-3xl border border-slate-700 bg-bg-secondary p-6 shadow-card">
-            <p className="mb-4 text-sm text-text-secondary">{analysisResult.marketContext}</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4">
-                <p className="text-sm text-slate-400">Red Flag Status</p>
-                <p className={`mt-2 text-lg font-semibold ${analysisResult.redFlag.blocked ? 'text-rose-400' : 'text-emerald-400'}`}>
+          {/* Kontext + Red-Flag */}
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-card">
+            <p className="text-sm font-medium text-[var(--text-secondary)]">{analysisResult.marketContext}</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Red Flag Status</p>
+                <p className={`mt-2 text-base font-semibold ${analysisResult.redFlag.blocked ? 'text-[var(--loss)]' : 'text-[var(--gain)]'}`}>
                   {analysisResult.redFlag.blocked ? `❌ ${analysisResult.redFlag.reason}` : '✅ Keine Flags aktiv'}
                 </p>
-                {analysisResult.redFlag.warning ? <p className="mt-2 text-slate-400">{analysisResult.redFlag.warning}</p> : null}
               </div>
-              <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4">
-                <p className="text-sm text-slate-400">Hinweis</p>
-                <p className="mt-2 text-slate-100">{analysisResult.note}</p>
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Hinweis</p>
+                <p className="mt-2 text-sm text-[var(--text-primary)]">{analysisResult.note}</p>
               </div>
             </div>
           </div>
 
-          <div className="space-y-4">
-            {analysisResult.setups.map((setup) => (
-              <div key={setup.id} className="rounded-3xl border border-slate-700 bg-bg-secondary p-6 shadow-card">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">SETUP #{setup.id}</h3>
-                    <p className="text-sm text-slate-400">{setup.asset} | {setup.direction}</p>
+          {/* Top-3 Setup Cards */}
+          {analysisResult.setups.map((setup) => (
+            <div
+              key={setup.id}
+              className={`rounded-3xl border bg-[var(--bg-secondary)] p-6 shadow-card ${setup.rank === 1 ? 'border-[var(--accent-cyan)]' : 'border-[var(--border)]'}`}
+            >
+              {/* Header */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={rankBadgeClass(setup.rank)}>{rankLabel(setup.rank)}</span>
+                    <span className="rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)]">
+                      {setup.assetClass === 'crypto' ? '₿ Krypto' : '📈 Aktie'}
+                    </span>
                   </div>
-                  <div>{renderBadge(`${setup.positiveCount}/5 Familien positiv`)}</div>
+                  <h3 className="mt-3 text-2xl font-bold text-[var(--text-primary)]">{setup.asset}</h3>
+                  <p className="mt-1 font-mono text-sm text-[var(--text-muted)]">{setup.symbol} · {setup.direction} · {setup.duration}</p>
                 </div>
-
-                <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {Object.entries(setup.signals).map(([key, value]) => (
-                    <div key={key} className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{key}</p>
-                      <p className="mt-3 text-xl font-semibold text-white">{value}</p>
-                    </div>
-                  ))}
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Live-Kurs</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold text-[var(--accent-cyan)]">
+                    {formatPrice(getPriceForAsset(setup.symbol, quoteData))} €
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">{setup.positiveCount}/5 Signale grün</p>
                 </div>
-
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4 text-sm text-slate-300">
-                    <p className="text-slate-400">Einstieg</p>
-                    <p className="mt-2 text-lg text-white">{setup.entry.toFixed(2)} €</p>
-                    <p className="mt-1">SL: {setup.stop.toFixed(2)} €</p>
-                    <p>Einsatz: {setup.positionSize.toFixed(2)} €</p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4 text-sm text-slate-300">
-                    <p className="text-slate-400">Take-Profit</p>
-                    <p className="mt-2 text-lg text-white">{setup.target.toFixed(2)} €</p>
-                    <p className="mt-1">Max. Verlust: {setup.maxLoss.toFixed(2)} €</p>
-                    <p className="mt-1">CRV: {setup.crv}</p>
-                  </div>
-                </div>
-
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4 text-sm text-slate-300">
-                    <p className="text-slate-400">Erklärung</p>
-                    <p className="mt-2 text-white">{setup.explanation}</p>
-                  </div>
-                  <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-4 text-sm text-slate-300">
-                    <p className="text-slate-400">Invalidierung</p>
-                    <p className="mt-2 text-white">{setup.invalidation}</p>
-                  </div>
-                </div>
-
-                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-slate-500">Datenstand: {setup.timestamp}</p>
               </div>
-            ))}
-          </div>
+
+              {/* Signale */}
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {(Object.entries(setup.signals) as [keyof typeof setup.signals, string][]).map(([key, value]) => (
+                  <div key={key} className={signalCellClass(value)}>
+                    <p className="text-xs uppercase tracking-[0.18em] opacity-70">{SIGNAL_LABELS[key] ?? key}</p>
+                    <p className="mt-2 text-lg font-semibold">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Trade-Parameter */}
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Einstieg</p>
+                  <p className="mt-2 font-mono text-lg font-semibold text-[var(--text-primary)]">{formatPrice(setup.entry)} €</p>
+                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                    Stop-Loss: <span className="font-mono text-[var(--loss)]">{formatPrice(setup.stop)} €</span>
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Stop-Abstand: <span className="font-mono">{setup.stopDistancePercent.toFixed(1)} %</span>
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Take-Profit</p>
+                  <p className="mt-2 font-mono text-lg font-semibold text-[var(--gain)]">{formatPrice(setup.target)} €</p>
+                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                    CRV: <span className="font-mono font-semibold text-[var(--text-primary)]">{setup.crv}</span>
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">Fenster: {setup.window}</p>
+                </div>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Positionsgröße</p>
+                  <p className="mt-2 font-mono text-lg font-semibold text-[var(--text-primary)]">{formatPrice(setup.positionSize)} €</p>
+                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                    Max. Verlust: <span className="font-mono text-[var(--loss)]">{formatPrice(setup.maxLoss)} €</span>
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">Risiko: 2% Kapital</p>
+                </div>
+              </div>
+
+              {/* Erklärung + Invalidierung */}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Setup-Begründung</p>
+                  <p className="mt-2 text-sm text-[var(--text-primary)]">{setup.explanation}</p>
+                </div>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Invalidierung</p>
+                  <p className="mt-2 text-sm text-[var(--text-primary)]">{setup.invalidation}</p>
+                </div>
+              </div>
+
+              {/* Analyse-Narrativ */}
+              <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] p-5">
+                <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Vollständige Analyse</p>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-primary)]">{setup.analysisNarrative}</p>
+              </div>
+
+              <p className="mt-4 text-xs text-[var(--text-muted)]">Datenstand: {setup.timestamp}</p>
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="rounded-3xl border border-slate-700 bg-bg-tertiary p-6 text-slate-300 shadow-card">
-          <p className="text-sm">
-            Keine Analyse ausgeführt. Fülle Kapital und Asset-Einstellungen aus, dann klicke auf &quot;Analyse starten&quot;.
-          </p>
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-6 text-[var(--text-secondary)] shadow-card">
+          Keine Analyse ausgeführt. Kapital und Asset-Einstellungen oben wählen, dann <strong className="text-[var(--text-primary)]">„Analyse starten"</strong> klicken.
+          <br />
+          <span className="mt-1 block text-xs text-[var(--text-muted)]">
+            Die Analyse liefert Top-3 Setups (Platz 1 = bestes Setup) mit vollständiger Signal-Tabelle, Trade-Parametern und Analyse-Text.
+          </span>
         </div>
       )}
     </section>

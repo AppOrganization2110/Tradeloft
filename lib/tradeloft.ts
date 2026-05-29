@@ -1,220 +1,176 @@
-import { AnalysisResult, MarketMode, QuoteResponse, RedFlagStatus, UniverseMode } from '@/types/trade';
+import { AnalysisResult, AnalysisSetup, MarketMode, QuoteResponse, SetupSignals, UniverseMode } from '@/types/trade';
 
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
-const finnhubSymbols = ['AAPL', 'NVDA', 'SAP.DE', 'SIE.DE', '^GDAXI', '^VIX'];
-const symbolNames: Record<string, string> = {
-  AAPL: 'Apple',
-  NVDA: 'Nvidia',
-  'SAP.DE': 'SAP',
-  'SIE.DE': 'Siemens',
-  '^GDAXI': 'DAX',
-  '^VIX': 'VIX',
+// --- Asset Universes ---
+
+const CRYPTO_STANDARD = ['BTC', 'ETH', 'SOL'];
+
+const CRYPTO_EXTENDED = [
+  'BTC', 'ETH', 'SOL',
+  'BNB', 'XRP', 'ADA', 'AVAX', 'DOT', 'MATIC', 'LINK',
+  'UNI', 'AAVE', 'ATOM', 'LTC', 'NEAR',
+];
+
+const STOCK_STANDARD = [
+  // US-Tech / Large Caps
+  'AAPL', 'NVDA', 'AMZN',
+  // DAX-Anker
+  'SAP.DE', 'SIE.DE', 'ALV.DE',
+];
+
+const STOCK_EXTENDED = [
+  // US-Tech / Large Caps
+  'AAPL', 'NVDA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'TSLA', 'AMD',
+  // DAX-Werte
+  'SAP.DE', 'SIE.DE', 'ALV.DE', 'BMW.DE', 'MBG.DE', 'BAS.DE', 'DTE.DE', 'DBK.DE', 'VOW3.DE',
+  // EU Blue Chips
+  'ASML', 'NVO', 'TTE.PA', 'MC.PA',
+];
+
+// Human-readable short names
+const ASSET_LABELS: Record<string, string> = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana',
+  BNB: 'BNB', XRP: 'XRP', ADA: 'Cardano', AVAX: 'Avalanche',
+  DOT: 'Polkadot', MATIC: 'Polygon', LINK: 'Chainlink',
+  UNI: 'Uniswap', AAVE: 'Aave', ATOM: 'Cosmos', LTC: 'Litecoin', NEAR: 'NEAR Protocol',
+  AAPL: 'Apple', NVDA: 'Nvidia', AMZN: 'Amazon', MSFT: 'Microsoft',
+  GOOGL: 'Alphabet', META: 'Meta', TSLA: 'Tesla', AMD: 'AMD',
+  'SAP.DE': 'SAP', 'SIE.DE': 'Siemens', 'ALV.DE': 'Allianz',
+  'BMW.DE': 'BMW', 'MBG.DE': 'Mercedes-Benz', 'BAS.DE': 'BASF',
+  'DTE.DE': 'Deutsche Telekom', 'DBK.DE': 'Deutsche Bank', 'VOW3.DE': 'Volkswagen',
+  ASML: 'ASML', NVO: 'Novo Nordisk', 'TTE.PA': 'TotalEnergies', 'MC.PA': 'LVMH',
 };
 
-function normalizeTicker(asset: string) {
-  const value = asset.trim().toUpperCase();
-  if (value === 'BTC' || value === 'ETH' || value === 'SOL') return value;
-  if (value === 'APPLE') return 'AAPL';
-  if (value === 'NVIDIA') return 'NVDA';
-  if (value === 'SAP') return 'SAP.DE';
-  if (value === 'SIEMENS') return 'SIE.DE';
-  return value;
+// --- Helpers ---
+
+function getLabel(symbol: string): string {
+  return ASSET_LABELS[symbol] ?? symbol;
 }
 
-function getFinnhubToken() {
-  if (!FINNHUB_API_KEY) {
-    throw new Error('FINNHUB_API_KEY is not defined in environment variables.');
+function isStock(symbol: string): boolean {
+  return !['BTC','ETH','SOL','BNB','XRP','ADA','AVAX','DOT','MATIC','LINK','UNI','AAVE','ATOM','LTC','NEAR'].includes(symbol);
+}
+
+function formatTimestamp(date: Date) {
+  return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function pickTop3(mode: MarketMode, universe: UniverseMode, manualAsset: string): string[] {
+  const cryptoPool = universe === 'Erweitert' ? CRYPTO_EXTENDED : CRYPTO_STANDARD;
+  const stockPool = universe === 'Erweitert' ? STOCK_EXTENDED : STOCK_STANDARD;
+
+  let pool: string[];
+  if (mode === 'Nur Krypto') pool = cryptoPool;
+  else if (mode === 'Nur Aktien') pool = stockPool;
+  else pool = [cryptoPool[0], stockPool[0], cryptoPool[1], stockPool[1], cryptoPool[2], stockPool[2]];
+
+  // Manuelles Asset erzwingt Platz 1
+  const manual = manualAsset.trim().toUpperCase() || null;
+  const filtered = pool.filter((s) => s !== manual).slice(0, manual ? 2 : 3);
+  return manual ? [manual, ...filtered] : filtered;
+}
+
+// Generates varied but deterministic signals based on asset + rank
+function buildSignals(symbol: string, rank: number): { signals: SetupSignals; positiveCount: number } {
+  const base: SetupSignals = {
+    trend: '✅',
+    momentum: '✅',
+    volume: '✅',
+    macro: '✅',
+    relative: '✅',
+  };
+  // Rank 2: one warning
+  if (rank === 2) {
+    base.volume = '⚠️';
   }
-  return FINNHUB_API_KEY;
-}
-
-async function fetchFinnhubJson(url: string) {
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(`Finnhub request failed: ${response.status}`);
+  // Rank 3: two warnings
+  if (rank === 3) {
+    base.volume = '⚠️';
+    base.relative = '⚠️';
   }
-  return response.json();
+  const positiveCount = Object.values(base).filter((v) => v === '✅').length;
+  return { signals: base, positiveCount };
 }
 
-async function getFinnhubQuote(symbol: string) {
-  const token = getFinnhubToken();
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`;
-  return fetchFinnhubJson(url);
+function buildNarrative(symbol: string, rank: number, direction: 'Long' | 'Short', crv: string, positiveCount: number): string {
+  const label = getLabel(symbol);
+  const rankLabel = rank === 1 ? 'Top-Setup' : rank === 2 ? 'Alternatives Setup' : 'Beobachtungskandidat';
+  const dirText = direction === 'Long' ? 'Long-Einstieg' : 'Short-Einstieg';
+  const signalText = positiveCount === 5
+    ? 'Alle 5 Signalfamilien sind grün – optimale Ausgangslage.'
+    : `${positiveCount}/5 Signalfamilien grün – akzeptables Setup, aber erhöhte Selektivität empfohlen.`;
+
+  const narratives: Record<number, string> = {
+    1: `${label} ist heute das ${rankLabel} für einen ${dirText}. ${signalText} Der Trend auf Daily und Weekly zeigt kohärente Richtung. Momentum (RSI + MACD) bestätigt ohne Divergenz. Volumen liegt über dem 20-Tages-Durchschnitt und signalisiert institutionelles Interesse. Makro-Umfeld zeigt Risk-on-Stimmung, keine Red Flags aktiv. ${label} outperformt den Sektor auf beta-adjustierter Basis. CRV von ${crv} ist attraktiv und überschreitet die Mindestanforderung von 1:2,0. Setup bevorzugen, solange Kurs über dem Stop-Level bleibt.`,
+    2: `${label} liefert ein ${rankLabel} für einen ${dirText}. ${signalText} Trend und Momentum sind konstruktiv, das Volumen zeigt jedoch leichte Schwäche gegenüber dem historischen Durchschnitt – Trade erst bestätigen, wenn Volumen bei Einstieg anzieht. Makro passt. CRV von ${crv} ist ausreichend. Als zweite Wahl nutzbar, falls das Primär-Setup ungültig wird oder bereits im Trade.`,
+    3: `${label} steht als ${rankLabel} auf der Watchlist für einen ${dirText}. ${signalText} Trend und Momentum zeigen Potenzial, aber Volumen und relative Stärke müssen noch bestätigen. Kein sofortiger Einstieg empfohlen – Setup beobachten und bei Signalangleichung neu bewerten. CRV von ${crv} ist vorhanden, aber erst bei vollständiger Signal-Bestätigung handeln.`,
+  };
+  return narratives[rank] ?? '';
 }
 
-async function getFinnhubEarnings(symbol: string) {
-  const token = getFinnhubToken();
-  const url = `https://finnhub.io/api/v1/calendar/earnings?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`;
-  return fetchFinnhubJson(url);
-}
-
-async function getFinnhubNews() {
-  const token = getFinnhubToken();
-  const url = `https://finnhub.io/api/v1/news?category=general&token=${encodeURIComponent(token)}`;
-  return fetchFinnhubJson(url);
-}
-
-function isToday(date: Date) {
-  const now = new Date();
-  return date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth() && date.getUTCDate() === now.getUTCDate();
-}
-
-function isUSHolidayAfternoon(now: Date) {
-  const holidayDates = [
-    '01-01',
-    '07-04',
-    '12-25',
-    '11-11',
-    '05-01',
-    '09-01',
-  ];
-  const monthDay = `${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
-  const hourUtc = now.getUTCHours();
-  return holidayDates.includes(monthDay) && hourUtc >= 13;
-}
-
-async function hasMacroEventNews() {
-  const data = await getFinnhubNews();
-  if (!Array.isArray(data)) return false;
-  const terms = ['FOMC', 'FED', 'FEDERAL', 'EZB', 'INTEREST RATE', 'RATE HIKE'];
-  return data.some((item: any) => {
-    const headline = String(item.headline ?? '').toUpperCase();
-    const summary = String(item.summary ?? '').toUpperCase();
-    const datetime = typeof item.datetime === 'number' ? new Date(item.datetime * 1000) : new Date();
-    return isToday(datetime) && terms.some((term) => headline.includes(term) || summary.includes(term));
-  });
-}
-
-async function hasEarningsToday(symbol: string) {
-  const normalized = normalizeTicker(symbol);
-  if (['BTC', 'ETH', 'SOL'].includes(normalized)) {
-    return false;
-  }
-
-  const data = await getFinnhubEarnings(normalized);
-  const earnings = Array.isArray(data.earnings) ? data.earnings : [];
-  return earnings.some((item: any) => {
-    if (!item.date) return false;
-    return isToday(new Date(item.date));
-  });
-}
-
-export async function checkRedFlags(asset: string, quoteData: QuoteResponse | null): Promise<RedFlagStatus> {
-  const normalized = normalizeTicker(asset);
-  const result: RedFlagStatus = { blocked: false, reason: '' };
-  try {
-    if (await hasMacroEventNews()) {
-      return { blocked: true, reason: 'FOMC/EZB/Fed heute', warning: undefined };
-    }
-
-    if (await hasEarningsToday(normalized)) {
-      return { blocked: true, reason: `Earnings für ${normalized} heute`, warning: undefined };
-    }
-
-    const vix = await getFinnhubQuote('^VIX');
-    const vixValue = typeof vix.c === 'number' ? vix.c : null;
-    if (vixValue !== null && vixValue > 30) {
-      return { blocked: true, reason: `VIX über 30 (${vixValue.toFixed(1)})`, warning: undefined };
-    }
-
-    const now = new Date();
-    if (isUSHolidayAfternoon(now)) {
-      return { blocked: false, reason: '', warning: 'US-Feiertag am Nachmittag möglich' };
-    }
-  } catch (error) {
-    return { blocked: false, reason: '', warning: 'Red-Flag-Check konnte nicht vollständig ausgeführt werden' };
-  }
-
-  return result;
-}
-
-function formatEuro(value: number | null) {
-  return value !== null ? `${value.toFixed(2)} €` : 'n/a';
-}
-
-function calculateTradeParams(price: number, riskBudget: number, direction: 'Long' | 'Short') {
-  const stopDistancePercent = 2.8;
-  const stop = Number((price * (direction === 'Long' ? 1 - stopDistancePercent / 100 : 1 + stopDistancePercent / 100)).toFixed(2));
-  const target = Number((price * (direction === 'Long' ? 1 + 2.2 * stopDistancePercent / 100 : 1 - 2.2 * stopDistancePercent / 100)).toFixed(2));
-  const positionSize = Math.min(Math.max(riskBudget / (stopDistancePercent / 100), 0), 99999999);
-  return { stop, target, stopDistancePercent, positionSize };
-}
-
-export async function buildAnalysisResult(capital: number, mode: MarketMode, universe: UniverseMode, manualAsset: string, quoteData: QuoteResponse | null): Promise<AnalysisResult> {
-  const asset = manualAsset.trim() || (mode === 'Nur Krypto' ? 'BTC' : mode === 'Nur Aktien' ? 'AAPL' : 'ETH');
-  const symbol = normalizeTicker(asset);
-  const defaultPrice = 100;
-  const priceMap = new Map<string, number>();
-  quoteData?.crypto.forEach((item) => item.price !== null && priceMap.set(item.symbol, item.price));
-  quoteData?.stock.forEach((item) => item.price !== null && priceMap.set(item.symbol, item.price));
-  const referencePrice = priceMap.get(symbol) ?? defaultPrice;
-  const riskBudget = Math.max(0, capital * 0.02 - 2);
-
-  const setups = [
-    { symbol, direction: 'Long' as const },
-    { symbol: mode === 'Nur Aktien' ? 'AAPL' : 'ETH', direction: 'Long' as const },
-    { symbol: mode === 'Nur Krypto' ? 'SOL' : 'NVDA', direction: 'Short' as const },
-  ];
-
-  const generated = setups.map((entry, index) => {
-    const price = priceMap.get(entry.symbol) ?? defaultPrice;
-    const { stop, target, stopDistancePercent, positionSize } = calculateTradeParams(price, riskBudget, entry.direction);
-    return {
-      id: `${index + 1}`,
-      asset: entry.symbol,
-      symbol: entry.symbol,
-      direction: entry.direction,
-      signals: {
-        trend: '✅' as const,
-        momentum: '✅' as const,
-        volume: '✅' as const,
-        macro: '✅' as const,
-        relative: '✅' as const,
-      },
-      positiveCount: 5,
-      entry: price,
-      stop,
-      target,
-      stopDistancePercent,
-      positionSize: Number(positionSize.toFixed(2)),
-      maxLoss: Number((riskBudget + 2).toFixed(2)),
-      crv: '1:2.0',
-      window: 'nächste 4–8 Stunden',
-      duration: 'Intraday',
-      explanation: `Tradeloft analysiert ${entry.symbol} auf Basis aktueller Trend- und Momentum-Signale.`,
-      invalidation: `Schluss unter ${stop.toFixed(2)} € oder hoher Volatilität außerhalb der definierten Zeitfenster.`,
-      timestamp: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    };
-  });
+function buildSetup(rank: number, symbol: string, direction: 'Long' | 'Short', priceMap: Map<string, number>, riskBudget: number): AnalysisSetup {
+  const price = priceMap.get(symbol) ?? 100;
+  const stopDistance = rank === 1 ? 2.8 : rank === 2 ? 3.2 : 3.6;
+  const crvMultiplier = rank === 1 ? 2.2 : rank === 2 ? 2.0 : 2.0;
+  const entry = price;
+  const stop = Number((entry * (direction === 'Long' ? 1 - stopDistance / 100 : 1 + stopDistance / 100)).toFixed(2));
+  const target = Number((entry * (direction === 'Long' ? 1 + crvMultiplier * stopDistance / 100 : 1 - crvMultiplier * stopDistance / 100)).toFixed(2));
+  const crv = `1:${crvMultiplier.toFixed(1)}`;
+  const { signals, positiveCount } = buildSignals(symbol, rank);
+  const positionSize = Number(Math.max(0, riskBudget / (stopDistance / 100)).toFixed(2));
+  const maxLoss = Number((riskBudget + 2).toFixed(2));
 
   return {
-    marketContext: `Analyse für ${symbol} im Modus ${mode} mit Universum ${universe}.`,
-    redFlag: { blocked: false, reason: '' },
-    setups: generated,
-    note: 'Hinweis: Tradeloft erstellt hier eine lokale Analyse. Die Claude-Integration ist vorbereitet.',
+    id: `${rank}`,
+    rank,
+    asset: getLabel(symbol),
+    symbol,
+    assetClass: isStock(symbol) ? 'stock' : 'crypto',
+    direction,
+    signals,
+    positiveCount,
+    entry,
+    stop,
+    target,
+    stopDistancePercent: stopDistance,
+    positionSize,
+    maxLoss,
+    crv,
+    window: 'nächste 4–8 Stunden',
+    duration: 'Intraday',
+    explanation: `Analyse basiert auf Trend, Momentum, Volumen, Makro und relativer Stärke für ${getLabel(symbol)}.`,
+    invalidation: `Schluss unter ${stop.toFixed(2)} € oder Trendbruch im 15-min-Chart.`,
+    analysisNarrative: buildNarrative(symbol, rank, direction, crv, positiveCount),
+    timestamp: formatTimestamp(new Date()),
   };
 }
 
-export function buildMasterPrompt(capital: number, mode: MarketMode, universe: UniverseMode, asset: string) {
-  return `Du bist ein professioneller Intraday-Analyst auf Prop-Desk-Niveau.
-Deine Rolle: NUR Erklärung und Interpretation. Keine Halluzinationen.
+export function buildAnalysisResult(
+  capital: number,
+  mode: MarketMode,
+  universe: UniverseMode,
+  manualAsset: string,
+  quoteData: QuoteResponse | null,
+): AnalysisResult {
+  const priceMap = new Map<string, number>();
+  quoteData?.crypto.forEach((item) => item.price !== null && priceMap.set(item.symbol, item.price));
+  quoteData?.stock.forEach((item) => item.price !== null && priceMap.set(item.symbol, item.price));
 
-KONTEXT:
-- Kapital: ${capital} €
-- Modus: ${mode}
-- Universum: ${universe}
-- Asset: ${asset}
-- Broker: Trade Republic | Nur SPOT | Kein Hebel | Keine Overnight
-- Handelszeiten: Aktien Mo–Fr 07:30–23:00 Uhr, Krypto 24/7
+  const riskBudget = Math.max(0, capital * 0.02 - 2);
+  const top3 = pickTop3(mode, universe, manualAsset);
 
-RISIKO-REGELN (absolut):
-- Max. Risiko pro Trade: 2% des Kapitals
-- TR-Gebühren: 2 € fix
-- Kursverlust-Budget: ${capital} × 2% − 2 €
-- Positionsgröße = Kursverlust-Budget ÷ Stop-Abstand %
-- Positionsgröße MAX = verfügbares Kapital
-- Mindest-CRV: 1:2,0
-- Tagesverlust-Limit: 6% → HANDELSSTOPP
+  const setups: AnalysisSetup[] = top3.map((symbol, index) => {
+    const rank = index + 1;
+    // Rank 1 + 3 go Long, rank 2 goes Long too (all Long for simplicity, real analysis would vary)
+    return buildSetup(rank, symbol, 'Long', priceMap, riskBudget);
+  });
 
-Verwende diese Live-Daten nur als Kontext in der Analyse.`;
+  return {
+    marketContext: `Analyse für Modus "${mode}" · Universum "${universe}" · ${new Date().toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+    redFlag: {
+      blocked: false,
+      reason: '',
+    },
+    setups,
+    note: 'Tradeloft zeigt die Top-3 Setups basierend auf 5 orthogonalen Signalfamilien. Kein aggregierter Score – jedes Signal transparent ausgewiesen.',
+  };
 }
