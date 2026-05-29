@@ -1,15 +1,16 @@
 import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Tradeloft',
-  description: 'Tradeloft – professional intraday trading dashboard with live prices, analysis runner, trade log and capital tracker.',
+  description: 'Professionelles Intraday-Trading-Dashboard mit Live-Daten, Analyse-Runner und Trade-Log.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="de" className="scroll-smooth">
-      <body className="bg-bg-primary text-text-primary font-sans antialiased">{children}</body>
+    <html lang="de" suppressHydrationWarning>
+      <body className="bg-bg-primary text-text-primary antialiased">{children}</body>
     </html>
   );
 }
