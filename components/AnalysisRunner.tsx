@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { AnalysisResult, MarketMode, QuoteResponse } from '@/types/trade';
 import AssetUniversePanel from '@/components/AssetUniversePanel';
 
@@ -58,6 +57,7 @@ export default function AnalysisRunner({
   stopTrading,
   quoteData,
   loading = false,
+  scanProgress = null,
 }: {
   capital: number;
   mode: MarketMode;
@@ -71,13 +71,8 @@ export default function AnalysisRunner({
   stopTrading: boolean;
   quoteData: QuoteResponse | null;
   loading?: boolean;
+  scanProgress?: { current: number; total: number; symbol: string } | null;
 }) {
-  const previewLabel = useMemo(() => {
-    if (manualAsset.trim()) return manualAsset.trim().toUpperCase();
-    if (mode === 'Nur Krypto') return 'BTC · ETH · SOL';
-    if (mode === 'Nur Aktien') return 'AAPL · NVDA · AMZN';
-    return 'BTC · AAPL · ETH';
-  }, [manualAsset, mode]);
 
   return (
     <section className="space-y-4">
@@ -138,10 +133,31 @@ export default function AnalysisRunner({
           </label>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          Analysiere: <span className="font-mono font-medium text-[var(--text-primary)]">{previewLabel}</span>
-          <span className="ml-4 text-[var(--text-muted)]">· Quote: {quoteData ? quoteData.timestamp : 'lädt…'}</span>
-        </div>
+        {loading && (
+          <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-3">
+            {scanProgress ? (
+              <>
+                <div className="flex justify-between mb-2 text-sm">
+                  <span className="text-[var(--text-secondary)]">
+                    Universum-Scan · Prüfe {scanProgress.current} von {scanProgress.total} Assets
+                  </span>
+                  <span className="font-mono text-[var(--accent-cyan)]">{scanProgress.symbol}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[var(--bg-primary)] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent-cyan)]"
+                    style={{
+                      width: `${(scanProgress.current / scanProgress.total) * 100}%`,
+                      transition: 'width 30ms linear',
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <span className="text-sm text-[var(--text-muted)]">Verbinde mit Server…</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Ergebnisse */}

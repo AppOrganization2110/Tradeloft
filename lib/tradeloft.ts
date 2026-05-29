@@ -1,6 +1,7 @@
 import { AnalysisResult, AnalysisSetup, MarketMode, QuoteResponse, SetupSignals } from '@/types/trade';
-import { ASSET_LABELS, CRYPTO_UNIVERSE, STOCK_UNIVERSE } from '@/lib/universe';
 import { RISK, AssetBucket } from '@/lib/rules/config';
+import { FULL_UNIVERSE } from '@/lib/rules/constituents';
+import { scanCandidates } from '@/lib/runner/scanner';
 
 // --- Markt-Kontext (fundamentale & makro Einordnung je Asset) ---
 
@@ -23,7 +24,7 @@ const ASSET_CONTEXT: Record<string, string> = {
 };
 
 function getLabel(symbol: string): string {
-  return ASSET_LABELS[symbol] ?? symbol;
+  return FULL_UNIVERSE.find(a => a.symbol === symbol)?.name ?? symbol;
 }
 
 function getAssetContext(symbol: string): string {
@@ -31,32 +32,13 @@ function getAssetContext(symbol: string): string {
 }
 
 function isStock(symbol: string): boolean {
-  return !CRYPTO_UNIVERSE.includes(symbol);
+  return FULL_UNIVERSE.find(a => a.symbol === symbol)?.bucket !== 'crypto';
 }
 
 function formatTimestamp(date: Date) {
   return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function pickTop3(mode: MarketMode, manualAsset: string, activeBuckets?: AssetBucket[]): string[] {
-  const cryptoTop = ['BTC', 'ETH', 'SOL'];
-  const stockTop  = ['AAPL', 'NVDA', 'AMZN'];
-
-  let pool: string[];
-  if (activeBuckets && activeBuckets.length > 0) {
-    const hasCrypto = activeBuckets.includes('crypto');
-    const hasStock  = activeBuckets.includes('eu') || activeBuckets.includes('us');
-    if (hasCrypto && !hasStock) pool = CRYPTO_UNIVERSE;
-    else if (hasStock && !hasCrypto) pool = STOCK_UNIVERSE;
-    else pool = [cryptoTop[0], stockTop[0], cryptoTop[1], stockTop[1], cryptoTop[2], stockTop[2]];
-  } else if (mode === 'Nur Krypto') pool = CRYPTO_UNIVERSE;
-  else if (mode === 'Nur Aktien') pool = STOCK_UNIVERSE;
-  else pool = [cryptoTop[0], stockTop[0], cryptoTop[1], stockTop[1], cryptoTop[2], stockTop[2]];
-
-  const manual = manualAsset.trim().toUpperCase() || null;
-  const filtered = pool.filter((s) => s !== manual).slice(0, manual ? 2 : 3);
-  return manual ? [manual, ...filtered] : filtered;
-}
 
 function buildSignals(rank: number): { signals: SetupSignals; positiveCount: number } {
   const s: SetupSignals = { trend: '✅', momentum: '✅', volume: '✅', macro: '✅', relative: '✅' };
@@ -130,7 +112,7 @@ export function buildAnalysisResult(
   quoteData?.stock.forEach((p) => p.price !== null && priceMap.set(p.symbol, p.price));
 
   const riskBudget = capital * RISK.perTrade;
-  const top3 = pickTop3(mode, manualAsset, activeBuckets);
+  const top3 = scanCandidates(mode, manualAsset, quoteData, activeBuckets ?? [], new Date());
   const setups = top3.map((symbol, i) => buildSetup(i + 1, symbol, priceMap, riskBudget));
 
   return {

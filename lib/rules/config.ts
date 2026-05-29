@@ -105,6 +105,8 @@ export const TIME_CONFIG = {
   closeMarginMin: 20,     // buffer before window end: do not open new trades
   settlePufferMin: 15,    // wait after window open before first analysis
   cryptoCutoffH: 22,      // no new crypto trades after 22:00
+  trCloseH: 23,           // TR (Lang & Schwarz) trading end — the only hard time gate
+  trCloseM: 0,
 } as const;
 
 // Manually maintained public holiday lists (YYYY-MM-DD).

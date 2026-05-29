@@ -9,6 +9,7 @@ import RulesTab from '@/components/RulesTab';
 import { loadFromStorage, saveToStorage } from '@/lib/localStorage';
 import { AnalysisResult, MarketMode, QuoteResponse, TradeLogEntry } from '@/types/trade';
 import { getWindowState } from '@/lib/rules/timeWindows';
+import { FULL_UNIVERSE } from '@/lib/rules/constituents';
 
 type Tab = 'analyse' | 'tradelog' | 'kapital' | 'regeln';
 
@@ -37,6 +38,7 @@ export default function TradeloftApp() {
   const [quoteData, setQuoteData] = useState<QuoteResponse | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysing, setAnalysing] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{ current: number; total: number; symbol: string } | null>(null);
   const [tradeLog, setTradeLog] = useState<TradeLogEntry[]>(initialState.tradeLog);
   const [activeTab, setActiveTab] = useState<Tab>('analyse');
 
@@ -85,7 +87,24 @@ export default function TradeloftApp() {
   const runAnalysis = async () => {
     if (stopTrading || analysing) return;
     setAnalysing(true);
+
     const ws = getWindowState(new Date());
+
+    // Animate progress through the candidate pool (mirrors server-side scanner pool)
+    const pool = FULL_UNIVERSE.filter(c => {
+      if (mode === 'Nur Krypto') return c.bucket === 'crypto';
+      if (mode === 'Nur Aktien') return c.bucket !== 'crypto';
+      return true;
+    });
+    const total = pool.length;
+    let i = 0;
+    const msPerAsset = Math.max(15, Math.floor(4500 / total));
+    const tick = window.setInterval(() => {
+      i++;
+      setScanProgress({ current: Math.min(i, total), total, symbol: pool[Math.min(i - 1, total - 1)].symbol });
+      if (i >= total) clearInterval(tick);
+    }, msPerAsset);
+
     try {
       const res = await fetch('/api/analyse', {
         method: 'POST',
@@ -101,6 +120,8 @@ export default function TradeloftApp() {
     } catch {
       // Fallback: static analysis already computed server-side; if fetch failed entirely, skip
     } finally {
+      clearInterval(tick);
+      setScanProgress(null);
       setAnalysing(false);
     }
   };
@@ -207,6 +228,7 @@ export default function TradeloftApp() {
             stopTrading={stopTrading}
             quoteData={quoteData}
             loading={analysing}
+            scanProgress={scanProgress}
           />
           </>
         )}
