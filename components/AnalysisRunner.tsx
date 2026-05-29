@@ -322,7 +322,7 @@ export default function AnalysisRunner({
       )}
 
       {/* Asset-Universum Panel */}
-      <AssetUniversePanel quoteData={quoteData} />
+      <AssetUniversePanel />
     </section>
   );
 }

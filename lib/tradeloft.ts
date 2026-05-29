@@ -1,5 +1,6 @@
 import { AnalysisResult, AnalysisSetup, MarketMode, QuoteResponse, SetupSignals } from '@/types/trade';
 import { ASSET_LABELS, CRYPTO_UNIVERSE, STOCK_UNIVERSE } from '@/lib/universe';
+import { RISK, AssetBucket } from '@/lib/rules/config';
 
 // --- Markt-Kontext (fundamentale & makro Einordnung je Asset) ---
 
@@ -37,12 +38,18 @@ function formatTimestamp(date: Date) {
   return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function pickTop3(mode: MarketMode, manualAsset: string): string[] {
+function pickTop3(mode: MarketMode, manualAsset: string, activeBuckets?: AssetBucket[]): string[] {
   const cryptoTop = ['BTC', 'ETH', 'SOL'];
   const stockTop  = ['AAPL', 'NVDA', 'AMZN'];
 
   let pool: string[];
-  if (mode === 'Nur Krypto')  pool = CRYPTO_UNIVERSE;
+  if (activeBuckets && activeBuckets.length > 0) {
+    const hasCrypto = activeBuckets.includes('crypto');
+    const hasStock  = activeBuckets.includes('eu') || activeBuckets.includes('us');
+    if (hasCrypto && !hasStock) pool = CRYPTO_UNIVERSE;
+    else if (hasStock && !hasCrypto) pool = STOCK_UNIVERSE;
+    else pool = [cryptoTop[0], stockTop[0], cryptoTop[1], stockTop[1], cryptoTop[2], stockTop[2]];
+  } else if (mode === 'Nur Krypto') pool = CRYPTO_UNIVERSE;
   else if (mode === 'Nur Aktien') pool = STOCK_UNIVERSE;
   else pool = [cryptoTop[0], stockTop[0], cryptoTop[1], stockTop[1], cryptoTop[2], stockTop[2]];
 
@@ -99,7 +106,7 @@ function buildSetup(rank: number, symbol: string, priceMap: Map<string, number>,
     target,
     stopDistancePercent: stopDist,
     positionSize: Number(Math.max(0, riskBudget / (stopDist / 100)).toFixed(2)),
-    maxLoss: Number((riskBudget + 2).toFixed(2)),
+    maxLoss: Number(riskBudget.toFixed(2)),
     crv,
     window: 'nächste 4–8 Stunden',
     duration: 'Intraday',
@@ -116,13 +123,14 @@ export function buildAnalysisResult(
   mode: MarketMode,
   manualAsset: string,
   quoteData: QuoteResponse | null,
+  activeBuckets?: AssetBucket[],
 ): AnalysisResult {
   const priceMap = new Map<string, number>();
   quoteData?.crypto.forEach((p) => p.price !== null && priceMap.set(p.symbol, p.price));
   quoteData?.stock.forEach((p) => p.price !== null && priceMap.set(p.symbol, p.price));
 
-  const riskBudget = Math.max(0, capital * 0.02 - 2);
-  const top3 = pickTop3(mode, manualAsset);
+  const riskBudget = capital * RISK.perTrade;
+  const top3 = pickTop3(mode, manualAsset, activeBuckets);
   const setups = top3.map((symbol, i) => buildSetup(i + 1, symbol, priceMap, riskBudget));
 
   return {

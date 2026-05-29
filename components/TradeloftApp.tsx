@@ -1,19 +1,22 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import AnalysisRunner from '@/components/AnalysisRunner';
 import TradeLog from '@/components/TradeLog';
 import CapitalTracker from '@/components/CapitalTracker';
+import TimePanel from '@/components/TimePanel';
+import RulesTab from '@/components/RulesTab';
 import { loadFromStorage, saveToStorage } from '@/lib/localStorage';
 import { AnalysisResult, MarketMode, QuoteResponse, TradeLogEntry } from '@/types/trade';
+import { getWindowState } from '@/lib/rules/timeWindows';
 
-type Tab = 'analyse' | 'tradelog' | 'kapital';
+type Tab = 'analyse' | 'tradelog' | 'kapital' | 'regeln';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'analyse',  label: 'Analyse-Dashboard' },
   { id: 'tradelog', label: 'Trade-Log'         },
   { id: 'kapital',  label: 'Kapital'           },
+  { id: 'regeln',   label: 'Regeln'            },
 ];
 
 const THEME_KEY = 'tradeloft-theme';
@@ -82,11 +85,16 @@ export default function TradeloftApp() {
   const runAnalysis = async () => {
     if (stopTrading || analysing) return;
     setAnalysing(true);
+    const ws = getWindowState(new Date());
     try {
       const res = await fetch('/api/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ capital, mode, manualAsset, quoteData }),
+        body: JSON.stringify({
+          capital, mode, manualAsset, quoteData,
+          activeBuckets: ws.activeBuckets,
+          windowId: ws.activeWindow?.id,
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setAnalysisResult((await res.json()) as AnalysisResult);
@@ -162,9 +170,6 @@ export default function TradeloftApp() {
                   {tab.label}
                 </button>
               ))}
-              <Link href="/regeln" className="btn-ghost min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold">
-                Regeln
-              </Link>
               <button
                 type="button"
                 onClick={() => setDarkMode((d) => !d)}
@@ -187,6 +192,8 @@ export default function TradeloftApp() {
         {/* ── Tab-Inhalte ── */}
 
         {activeTab === 'analyse' && (
+          <>
+          <TimePanel />
           <AnalysisRunner
             capital={capital}
             mode={mode}
@@ -201,6 +208,7 @@ export default function TradeloftApp() {
             quoteData={quoteData}
             loading={analysing}
           />
+          </>
         )}
 
         {activeTab === 'tradelog' && (
@@ -214,6 +222,10 @@ export default function TradeloftApp() {
 
         {activeTab === 'kapital' && (
           <CapitalTracker capital={capital} tradeLog={tradeLog} />
+        )}
+
+        {activeTab === 'regeln' && (
+          <RulesTab />
         )}
 
       </div>

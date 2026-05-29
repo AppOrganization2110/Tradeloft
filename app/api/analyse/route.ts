@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildAnalysisResult } from '@/lib/tradeloft';
 import { MarketMode, QuoteResponse } from '@/types/trade';
+import { RISK, SIGNALS, AssetBucket } from '@/lib/rules/config';
 
 const SYSTEM_PROMPT = `Du bist Tradeloft, ein professioneller Intraday-Trading-Assistent für den deutschen Trader Thomas.
 Thomas handelt über Trade Republic (SPOT only, kein Hebel, kein Overnight, kein Short-Selling, nur Long-Positionen).
 
 Wichtigste Handelsregeln:
-- Max. 2% Risiko pro Trade (Positionsgröße wird danach berechnet)
-- Mindest-CRV: 1:2,0
-- Kein Trade bei: FOMC/EZB-Entscheidung heute, VIX>30, Earnings des Assets heute
-- Tagesverlust-Limit: 6% des Kapitals → HANDELSSTOPP
-- Mindestens 4/5 Signalfamilien müssen grün sein (Trend, Momentum, Volumen, Makro, Relative Stärke)
+- Max. ${RISK.perTrade * 100}% Risiko pro Trade (Positionsgröße = Risiko-Budget ÷ Stop-Abstand%; keine Gebührenabzüge)
+- Mindest-CRV: 1:${RISK.minCrv.toFixed(1)}
+- Kein Trade bei: FOMC/EZB-Entscheidung heute, VIX>${30}, Earnings des Assets heute
+- Tagesverlust-Limit: ${RISK.dailyLossLimit * 100}% des Kapitals → HANDELSSTOPP
+- Mindestens ${SIGNALS.required}/${SIGNALS.total} Signalfamilien müssen grün sein (${SIGNALS.families.join(', ')})
 
 Antworte IMMER als reines JSON-Objekt ohne Markdown-Backticks oder zusätzlichen Text.`;
 
@@ -20,6 +21,8 @@ export async function POST(req: NextRequest) {
   let mode: MarketMode = 'Beides';
   let manualAsset = '';
   let quoteData: QuoteResponse | null = null;
+  let activeBuckets: AssetBucket[] | undefined;
+  let windowId: string | undefined;
 
   try {
     const body = await req.json() as {
@@ -27,17 +30,21 @@ export async function POST(req: NextRequest) {
       mode: MarketMode;
       manualAsset: string;
       quoteData: QuoteResponse | null;
+      activeBuckets?: AssetBucket[];
+      windowId?: string;
     };
     capital = body.capital;
     mode = body.mode;
     manualAsset = body.manualAsset;
     quoteData = body.quoteData;
+    activeBuckets = body.activeBuckets;
+    windowId = body.windowId;
   } catch {
     return NextResponse.json({ error: 'Ungültige Anfrage' }, { status: 400 });
   }
 
   // Build static analysis (trade parameters, signals, etc.)
-  const staticResult = buildAnalysisResult(capital, mode, manualAsset, quoteData);
+  const staticResult = buildAnalysisResult(capital, mode, manualAsset, quoteData, activeBuckets);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -78,7 +85,7 @@ export async function POST(req: NextRequest) {
 
     const userPrompt = `Datum: ${date}, Uhrzeit: ${time} Uhr MEZ
 Kapital: ${capital.toLocaleString('de-DE')} €
-Analyse-Modus: ${mode}
+Analyse-Modus: ${mode}${windowId ? `\nAktives Zeitfenster: ${windowId}` : ''}${activeBuckets?.length ? `\nHandelbare Buckets: ${activeBuckets.join(', ')}` : ''}
 
 Top-3 Setups für heute:
 ${setupLines}

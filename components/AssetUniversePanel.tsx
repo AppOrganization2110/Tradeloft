@@ -1,27 +1,34 @@
 'use client';
 
-import { useState } from 'react';
-import { UNIVERSE } from '@/lib/universe';
-import { QuoteResponse } from '@/types/trade';
+import { useMemo, useState } from 'react';
+import { FULL_UNIVERSE } from '@/lib/rules/constituents';
 
-function getPrice(symbol: string, quoteData: QuoteResponse | null): number | null {
-  if (!quoteData) return null;
-  return quoteData.crypto.find(p => p.symbol === symbol)?.price
-    ?? quoteData.stock.find(p => p.symbol === symbol)?.price
-    ?? null;
-}
+const euAssets    = FULL_UNIVERSE.filter(a => a.bucket === 'eu');
+const usAssets    = FULL_UNIVERSE.filter(a => a.bucket === 'us');
+const cryptoAssets = FULL_UNIVERSE.filter(a => a.bucket === 'crypto');
 
-function formatPrice(value: number | null) {
-  if (value === null) return '–';
-  return value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const SECTIONS = [
+  { label: '₿ Krypto',    assets: cryptoAssets },
+  { label: '📈 Aktien EU', assets: euAssets     },
+  { label: '📈 Aktien US', assets: usAssets     },
+] as const;
 
-const kryptoAssets = UNIVERSE.filter(a => a.bucket === 'krypto');
-const aktienEuAssets = UNIVERSE.filter(a => a.bucket === 'aktien-eu');
-const aktienUsAssets = UNIVERSE.filter(a => a.bucket === 'aktien-us');
-
-export default function AssetUniversePanel({ quoteData }: { quoteData: QuoteResponse | null }) {
+export default function AssetUniversePanel() {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return FULL_UNIVERSE;
+    return FULL_UNIVERSE.filter(
+      a => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)
+    );
+  }, [query]);
+
+  const filteredSections = SECTIONS.map(s => ({
+    label: s.label,
+    assets: filtered.filter(a => a.bucket === s.assets[0]?.bucket),
+  }));
 
   return (
     <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] shadow-card">
@@ -31,87 +38,47 @@ export default function AssetUniversePanel({ quoteData }: { quoteData: QuoteResp
         className="flex w-full items-center justify-between px-6 py-4 text-left"
       >
         <span className="font-semibold text-[var(--text-primary)]">
-          {open ? '▲' : '▼'}&nbsp; Asset-Universum ({UNIVERSE.length} Werte)
+          {open ? '▲' : '▼'}&nbsp; Asset-Universum ({FULL_UNIVERSE.length} Werte)
         </span>
-        <span className="text-sm text-[var(--text-muted)]">
-          {quoteData ? `Stand: ${new Date(quoteData.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Kurse laden…'}
-        </span>
+        <span className="text-sm text-[var(--text-muted)]">DAX40 · EuroStoxx50 · Nasdaq100 · Krypto Top20</span>
       </button>
 
       {open && (
-        <div className="border-t border-[var(--border)] px-6 pb-6 pt-4">
+        <div className="border-t border-[var(--border)] px-6 pb-6 pt-4 space-y-4">
+
+          {/* Search */}
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Suche (Symbol oder Name)…"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
+          />
+
+          {/* Columns */}
           <div className="grid gap-6 lg:grid-cols-3">
-
-            {/* Krypto */}
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-                ₿ Krypto ({kryptoAssets.length})
-              </p>
-              <div className="space-y-0.5">
-                {kryptoAssets.map(asset => {
-                  const price = getPrice(asset.symbol, quoteData);
-                  return (
-                    <div key={asset.symbol} className="flex items-center justify-between rounded-xl px-3 py-1.5 hover:bg-[var(--bg-tertiary)]">
-                      <div className="min-w-0">
-                        <span className="font-mono text-xs text-[var(--text-muted)]">{asset.symbol}</span>
-                        <span className="ml-2 truncate text-sm text-[var(--text-primary)]">{asset.name}</span>
-                      </div>
-                      <span className={`ml-3 shrink-0 font-mono text-sm ${price !== null ? 'text-[var(--accent-cyan)]' : 'text-[var(--text-muted)]'}`}>
-                        {price !== null ? `${formatPrice(price)} €` : '–'}
-                      </span>
+            {filteredSections.map(section => (
+              <div key={section.label}>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                  {section.label} ({section.assets.length})
+                </p>
+                <div className="overflow-y-auto max-h-[400px] space-y-0.5 pr-1">
+                  {section.assets.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-[var(--text-muted)]">Keine Treffer</p>
+                  ) : section.assets.map(asset => (
+                    <div
+                      key={asset.symbol}
+                      className="flex items-center gap-2 rounded-xl px-3 py-1.5 hover:bg-[var(--bg-tertiary)]"
+                    >
+                      <span className="font-mono text-xs text-[var(--text-muted)] w-20 shrink-0">{asset.symbol}</span>
+                      <span className="truncate text-sm text-[var(--text-primary)]">{asset.name}</span>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-
-            {/* Aktien EU */}
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-                📈 Aktien EU ({aktienEuAssets.length})
-              </p>
-              <div className="space-y-0.5">
-                {aktienEuAssets.map(asset => {
-                  const price = getPrice(asset.symbol, quoteData);
-                  return (
-                    <div key={asset.symbol} className="flex items-center justify-between rounded-xl px-3 py-1.5 hover:bg-[var(--bg-tertiary)]">
-                      <div className="min-w-0">
-                        <span className="font-mono text-xs text-[var(--text-muted)]">{asset.symbol}</span>
-                        <span className="ml-2 truncate text-sm text-[var(--text-primary)]">{asset.name}</span>
-                      </div>
-                      <span className={`ml-3 shrink-0 font-mono text-sm ${price !== null ? 'text-[var(--accent-cyan)]' : 'text-[var(--text-muted)]'}`}>
-                        {price !== null ? `${formatPrice(price)} €` : '–'}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Aktien US */}
-            <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-                📈 Aktien US ({aktienUsAssets.length})
-              </p>
-              <div className="space-y-0.5">
-                {aktienUsAssets.map(asset => {
-                  const price = getPrice(asset.symbol, quoteData);
-                  return (
-                    <div key={asset.symbol} className="flex items-center justify-between rounded-xl px-3 py-1.5 hover:bg-[var(--bg-tertiary)]">
-                      <div className="min-w-0">
-                        <span className="font-mono text-xs text-[var(--text-muted)]">{asset.symbol}</span>
-                        <span className="ml-2 truncate text-sm text-[var(--text-primary)]">{asset.name}</span>
-                      </div>
-                      <span className={`ml-3 shrink-0 font-mono text-sm ${price !== null ? 'text-[var(--accent-cyan)]' : 'text-[var(--text-muted)]'}`}>
-                        {price !== null ? `${formatPrice(price)} €` : '–'}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
+            ))}
           </div>
+
         </div>
       )}
     </div>
