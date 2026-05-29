@@ -38,15 +38,18 @@ type CmcQuoteEntry = {
   };
 };
 
-// Fetch EUR/USD exchange rate from Finnhub forex endpoint
-async function fetchEurUsdRate(token: string): Promise<number> {
-  const url = `https://finnhub.io/api/v1/forex/rates?base=USD&token=${encodeURIComponent(token)}`;
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) return 1.10; // safe fallback
-  const data = await res.json() as { quote?: Record<string, number> };
-  const eurRate = data.quote?.EUR;
-  // eurRate = EUR per 1 USD, e.g. 0.86 → 1 USD = 0.86 EUR
-  return typeof eurRate === 'number' && eurRate > 0 ? eurRate : 1.10;
+// Fetch EUR/USD rate from Frankfurter (ECB reference rates, free, no key)
+async function fetchEurUsdRate(_token: string): Promise<number> {
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?base=USD&to=EUR', { cache: 'no-store' });
+    if (!res.ok) return 0.88;
+    const data = await res.json() as { rates?: Record<string, number> };
+    const rate = data.rates?.EUR;
+    // rate = EUR per 1 USD, e.g. 0.86 → 1 USD = 0.86 EUR
+    return typeof rate === 'number' && rate > 0 ? rate : 0.88;
+  } catch {
+    return 0.88; // ECB daily average fallback
+  }
 }
 
 async function fetchCryptoPrices(): Promise<Quote[]> {
