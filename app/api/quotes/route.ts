@@ -1,20 +1,17 @@
 import { NextResponse } from 'next/server';
+import { UNIVERSE, CRYPTO_UNIVERSE } from '@/lib/universe';
 
-// Full crypto universe for analysis + live quotes
-const CMC_SYMBOLS = [
-  'BTC', 'ETH', 'SOL',
-  'BNB', 'XRP', 'ADA', 'AVAX', 'DOT', 'MATIC', 'LINK',
-  'UNI', 'AAVE', 'ATOM', 'LTC', 'NEAR',
-];
+const CMC_SYMBOLS = CRYPTO_UNIVERSE;
 
-// Symbols and whether they trade in USD (true) or already in EUR (false)
+// All tradeable stock universe + indices for red-flag check
 const FINNHUB_SYMBOLS: { symbol: string; name: string; usd: boolean }[] = [
-  { symbol: 'AAPL',   name: 'Apple',            usd: true  },
-  { symbol: 'NVDA',   name: 'Nvidia',            usd: true  },
-  { symbol: 'SAP.DE', name: 'SAP',               usd: false },
-  { symbol: 'SIE.DE', name: 'Siemens',           usd: false },
-  { symbol: '^GDAXI', name: 'DAX',               usd: false },
-  { symbol: '^VIX',   name: 'VIX',               usd: true  },
+  ...UNIVERSE.filter(a => a.bucket !== 'krypto').map(a => ({
+    symbol: a.symbol,
+    name: a.name,
+    usd: a.usd ?? false,
+  })),
+  { symbol: '^GDAXI', name: 'DAX', usd: false },
+  { symbol: '^VIX',   name: 'VIX', usd: true  },
 ];
 
 type Quote = {
@@ -98,27 +95,33 @@ async function fetchStockQuotes(): Promise<Quote[]> {
   const [eurUsdRate, ...stockResults] = await Promise.all([
     fetchEurUsdRate(token),
     ...FINNHUB_SYMBOLS.map(async ({ symbol, name, usd }): Promise<Quote> => {
-      const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      const data = await res.json() as { c?: number; pc?: number; t?: number };
+      try {
+        const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        const data = await res.json() as { c?: number; pc?: number; t?: number };
 
-      const rawPrice = typeof data.c === 'number' ? data.c : null;
-      const rawPrev  = typeof data.pc === 'number' ? data.pc : null;
+        // Finnhub returns 0 for unsupported/no-data symbols — treat as null
+        const rawPrice = typeof data.c === 'number' && data.c > 0 ? data.c : null;
+        const rawPrev  = typeof data.pc === 'number' && data.pc > 0 ? data.pc : null;
 
-      return {
-        symbol,
-        name,
-        source: 'Finnhub',
-        // USD prices stored as-is here; conversion applied below once rate is known
-        price: rawPrice,
-        change24h:
-          rawPrice !== null && rawPrev !== null && rawPrev !== 0
-            ? ((rawPrice - rawPrev) / rawPrev) * 100
-            : null,
-        lastUpdatedAt:
-          typeof data.t === 'number' ? new Date(data.t * 1000).toISOString() : null,
-        currency: usd ? 'USD' : 'EUR',
-      };
+        return {
+          symbol,
+          name,
+          source: 'Finnhub',
+          price: rawPrice,
+          change24h:
+            rawPrice !== null && rawPrev !== null
+              ? ((rawPrice - rawPrev) / rawPrev) * 100
+              : null,
+          lastUpdatedAt:
+            typeof data.t === 'number' && data.t > 0
+              ? new Date(data.t * 1000).toISOString()
+              : null,
+          currency: usd ? 'USD' : 'EUR',
+        };
+      } catch {
+        return { symbol, name, source: 'Finnhub', price: null, currency: usd ? 'USD' : 'EUR' };
+      }
     }),
   ]);
 

@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { AnalysisResult, MarketMode, QuoteResponse } from '@/types/trade';
+import AssetUniversePanel from '@/components/AssetUniversePanel';
 
 const MODE_OPTIONS: MarketMode[] = ['Nur Krypto', 'Nur Aktien', 'Beides'];
 
@@ -56,6 +57,7 @@ export default function AnalysisRunner({
   analysisResult,
   stopTrading,
   quoteData,
+  loading = false,
 }: {
   capital: number;
   mode: MarketMode;
@@ -68,6 +70,7 @@ export default function AnalysisRunner({
   analysisResult: AnalysisResult | null;
   stopTrading: boolean;
   quoteData: QuoteResponse | null;
+  loading?: boolean;
 }) {
   const previewLabel = useMemo(() => {
     if (manualAsset.trim()) return manualAsset.trim().toUpperCase();
@@ -91,10 +94,15 @@ export default function AnalysisRunner({
           <button
             type="button"
             onClick={onRunAnalysis}
-            disabled={stopTrading}
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={stopTrading || loading}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
           >
-            Analyse starten
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Analysiere…
+              </span>
+            ) : 'Analyse starten'}
           </button>
         </div>
 
@@ -137,7 +145,36 @@ export default function AnalysisRunner({
       </div>
 
       {/* Ergebnisse */}
-      {analysisResult ? (
+      {loading ? (
+        /* Skeleton loader */
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-card animate-pulse">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <div className="h-6 w-48 rounded-full bg-[var(--bg-tertiary)]" />
+                  <div className="h-8 w-32 rounded-xl bg-[var(--bg-tertiary)]" />
+                  <div className="h-4 w-40 rounded-lg bg-[var(--bg-tertiary)]" />
+                </div>
+                <div className="h-12 w-32 rounded-2xl bg-[var(--bg-tertiary)]" />
+              </div>
+              <div className="mt-5 grid gap-2 sm:grid-cols-5">
+                {[1,2,3,4,5].map(j => <div key={j} className="h-16 rounded-xl bg-[var(--bg-tertiary)]" />)}
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                {[1,2,3].map(j => <div key={j} className="h-24 rounded-2xl bg-[var(--bg-tertiary)]" />)}
+              </div>
+              <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                <div className="h-40 rounded-2xl bg-[var(--bg-tertiary)]" />
+                <div className="h-40 rounded-2xl bg-[var(--bg-tertiary)]" />
+              </div>
+            </div>
+          ))}
+          <p className="text-center text-sm text-[var(--text-muted)]">
+            Claude analysiert Marktlage und generiert Setups…
+          </p>
+        </div>
+      ) : analysisResult ? (
         <div className="space-y-4">
 
           {/* Kontext + Red-Flag */}
@@ -175,9 +212,21 @@ export default function AnalysisRunner({
                       {setup.assetClass === 'crypto' ? '₿ Krypto' : '📈 Aktie'}
                     </span>
                     <span className="text-xs text-[var(--text-muted)]">{setup.positiveCount}/5 Signale</span>
+                    {setup.decision && (
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] ${
+                        setup.decision === 'trade'
+                          ? 'bg-[var(--gain)] text-white'
+                          : 'bg-[var(--loss)] text-white'
+                      }`}>
+                        {setup.decision === 'trade' ? '✅ Trade' : '🔴 Kein Trade'}
+                      </span>
+                    )}
                   </div>
                   <h3 className="mt-2 text-2xl font-bold text-[var(--text-primary)]">{setup.asset}</h3>
                   <p className="font-mono text-sm text-[var(--text-muted)]">{setup.symbol} · {setup.direction} · {setup.duration}</p>
+                  {setup.decisionReason && (
+                    <p className="mt-1 text-xs text-[var(--text-secondary)]">{setup.decisionReason}</p>
+                  )}
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <div className="text-right">
@@ -271,6 +320,9 @@ export default function AnalysisRunner({
           </p>
         </div>
       )}
+
+      {/* Asset-Universum Panel */}
+      <AssetUniversePanel quoteData={quoteData} />
     </section>
   );
 }

@@ -5,18 +5,15 @@ import Link from 'next/link';
 import AnalysisRunner from '@/components/AnalysisRunner';
 import TradeLog from '@/components/TradeLog';
 import CapitalTracker from '@/components/CapitalTracker';
-import LiveQuotes from '@/components/LiveQuotes';
 import { loadFromStorage, saveToStorage } from '@/lib/localStorage';
-import { buildAnalysisResult } from '@/lib/tradeloft';
 import { AnalysisResult, MarketMode, QuoteResponse, TradeLogEntry } from '@/types/trade';
 
-type Tab = 'analyse' | 'dashboard' | 'tradelog' | 'kapital';
+type Tab = 'analyse' | 'tradelog' | 'kapital';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'analyse',   label: 'Analyse'    },
-  { id: 'dashboard', label: 'Dashboard'  },
-  { id: 'tradelog',  label: 'Trade-Log'  },
-  { id: 'kapital',   label: 'Kapital'    },
+  { id: 'analyse',  label: 'Analyse-Dashboard' },
+  { id: 'tradelog', label: 'Trade-Log'         },
+  { id: 'kapital',  label: 'Kapital'           },
 ];
 
 const THEME_KEY = 'tradeloft-theme';
@@ -36,6 +33,7 @@ export default function TradeloftApp() {
   const [darkMode, setDarkMode] = useState(true);
   const [quoteData, setQuoteData] = useState<QuoteResponse | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysing, setAnalysing] = useState(false);
   const [tradeLog, setTradeLog] = useState<TradeLogEntry[]>(initialState.tradeLog);
   const [activeTab, setActiveTab] = useState<Tab>('analyse');
 
@@ -81,9 +79,22 @@ export default function TradeloftApp() {
 
   const stopTrading = todayLoss <= -(capital * 0.06);
 
-  const runAnalysis = () => {
-    if (stopTrading) return;
-    setAnalysisResult(buildAnalysisResult(capital, mode, manualAsset, quoteData));
+  const runAnalysis = async () => {
+    if (stopTrading || analysing) return;
+    setAnalysing(true);
+    try {
+      const res = await fetch('/api/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capital, mode, manualAsset, quoteData }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setAnalysisResult((await res.json()) as AnalysisResult);
+    } catch {
+      // Fallback: static analysis already computed server-side; if fetch failed entirely, skip
+    } finally {
+      setAnalysing(false);
+    }
   };
 
   const saveTrade = (setupId: string) => {
@@ -188,30 +199,8 @@ export default function TradeloftApp() {
             analysisResult={analysisResult}
             stopTrading={stopTrading}
             quoteData={quoteData}
+            loading={analysing}
           />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            {/* Kapital-Übersicht */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Aktuelles Kapital</p>
-                <p className="mt-2 font-mono text-3xl font-semibold text-[var(--text-primary)]">{capital.toFixed(2)} €</p>
-              </div>
-              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Tagesverlust heute</p>
-                <p className={`mt-2 font-mono text-3xl font-semibold ${todayLoss < 0 ? 'text-[var(--loss)]' : 'text-[var(--gain)]'}`}>
-                  {todayLoss.toFixed(2)} €
-                </p>
-              </div>
-              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Tagesverlust-Limit</p>
-                <p className="mt-2 font-mono text-3xl font-semibold text-[var(--warning)]">{(capital * 0.06).toFixed(2)} €</p>
-              </div>
-            </div>
-            <LiveQuotes quoteData={quoteData} />
-          </div>
         )}
 
         {activeTab === 'tradelog' && (

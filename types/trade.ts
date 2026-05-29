@@ -46,6 +46,8 @@ export type AnalysisSetup = {
   analysisNarrative: string;
   assetContext: string;
   timestamp: string;
+  decision?: 'trade' | 'no-trade';
+  decisionReason?: string;
 };
 
 export type RedFlagStatus = {
