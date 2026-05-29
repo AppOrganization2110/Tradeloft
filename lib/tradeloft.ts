@@ -1,36 +1,5 @@
 import { AnalysisResult, AnalysisSetup, MarketMode, QuoteResponse, SetupSignals } from '@/types/trade';
-
-// --- Asset Universes (immer vollständig, Modus entscheidet) ---
-
-const CRYPTO_UNIVERSE = [
-  'BTC', 'ETH', 'SOL',
-  'BNB', 'XRP', 'ADA', 'AVAX', 'DOT', 'MATIC', 'LINK',
-  'UNI', 'AAVE', 'ATOM', 'LTC', 'NEAR',
-];
-
-const STOCK_UNIVERSE = [
-  // US-Tech / Large Caps
-  'AAPL', 'NVDA', 'AMZN', 'MSFT', 'GOOGL', 'META', 'TSLA', 'AMD',
-  // DAX-Werte
-  'SAP.DE', 'SIE.DE', 'ALV.DE', 'BMW.DE', 'MBG.DE', 'BAS.DE', 'DTE.DE', 'DBK.DE', 'VOW3.DE',
-  // EU Blue Chips
-  'ASML', 'NVO', 'TTE.PA', 'MC.PA',
-];
-
-// --- Labels ---
-
-const ASSET_LABELS: Record<string, string> = {
-  BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana',
-  BNB: 'BNB', XRP: 'XRP', ADA: 'Cardano', AVAX: 'Avalanche',
-  DOT: 'Polkadot', MATIC: 'Polygon', LINK: 'Chainlink',
-  UNI: 'Uniswap', AAVE: 'Aave', ATOM: 'Cosmos', LTC: 'Litecoin', NEAR: 'NEAR',
-  AAPL: 'Apple', NVDA: 'Nvidia', AMZN: 'Amazon', MSFT: 'Microsoft',
-  GOOGL: 'Alphabet', META: 'Meta', TSLA: 'Tesla', AMD: 'AMD',
-  'SAP.DE': 'SAP', 'SIE.DE': 'Siemens', 'ALV.DE': 'Allianz',
-  'BMW.DE': 'BMW', 'MBG.DE': 'Mercedes-Benz', 'BAS.DE': 'BASF',
-  'DTE.DE': 'Deutsche Telekom', 'DBK.DE': 'Deutsche Bank', 'VOW3.DE': 'Volkswagen',
-  ASML: 'ASML', NVO: 'Novo Nordisk', 'TTE.PA': 'TotalEnergies', 'MC.PA': 'LVMH',
-};
+import { ASSET_LABELS, CRYPTO_UNIVERSE, STOCK_UNIVERSE } from '@/lib/universe';
 
 // --- Markt-Kontext (fundamentale & makro Einordnung je Asset) ---
 
