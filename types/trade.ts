@@ -1,5 +1,4 @@
 export type MarketMode = 'Nur Krypto' | 'Nur Aktien' | 'Beides';
-export type UniverseMode = 'Standard' | 'Erweitert' | 'Manuell';
 
 export type PricePoint = {
   symbol: string;
@@ -45,6 +44,7 @@ export type AnalysisSetup = {
   explanation: string;
   invalidation: string;
   analysisNarrative: string;
+  assetContext: string;
   timestamp: string;
 };
 

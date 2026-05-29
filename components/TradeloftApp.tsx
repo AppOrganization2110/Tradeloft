@@ -1,12 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import AnalysisRunner from '@/components/AnalysisRunner';
 import TradeLog from '@/components/TradeLog';
 import CapitalTracker from '@/components/CapitalTracker';
+import LiveQuotes from '@/components/LiveQuotes';
 import { loadFromStorage, saveToStorage } from '@/lib/localStorage';
 import { buildAnalysisResult } from '@/lib/tradeloft';
-import { AnalysisResult, MarketMode, QuoteResponse, TradeLogEntry, UniverseMode } from '@/types/trade';
+import { AnalysisResult, MarketMode, QuoteResponse, TradeLogEntry } from '@/types/trade';
+
+type Tab = 'analyse' | 'dashboard' | 'tradelog' | 'kapital';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'analyse',   label: 'Analyse'    },
+  { id: 'dashboard', label: 'Dashboard'  },
+  { id: 'tradelog',  label: 'Trade-Log'  },
+  { id: 'kapital',   label: 'Kapital'    },
+];
 
 const THEME_KEY = 'tradeloft-theme';
 const STATE_KEY = 'tradeloft-state';
@@ -14,7 +25,6 @@ const STATE_KEY = 'tradeloft-state';
 const initialState = {
   capital: 10000,
   mode: 'Beides' as MarketMode,
-  universe: 'Standard' as UniverseMode,
   manualAsset: '',
   tradeLog: [] as TradeLogEntry[],
 };
@@ -22,74 +32,64 @@ const initialState = {
 export default function TradeloftApp() {
   const [capital, setCapital] = useState(initialState.capital);
   const [mode, setMode] = useState<MarketMode>(initialState.mode);
-  const [universe, setUniverse] = useState<UniverseMode>(initialState.universe);
   const [manualAsset, setManualAsset] = useState(initialState.manualAsset);
   const [darkMode, setDarkMode] = useState(true);
   const [quoteData, setQuoteData] = useState<QuoteResponse | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [tradeLog, setTradeLog] = useState<TradeLogEntry[]>(initialState.tradeLog);
+  const [activeTab, setActiveTab] = useState<Tab>('analyse');
 
+  // Persist & restore state
   useEffect(() => {
     const saved = loadFromStorage<typeof initialState>(STATE_KEY, initialState);
     setCapital(saved.capital);
     setMode(saved.mode);
-    setUniverse(saved.universe);
     setManualAsset(saved.manualAsset);
     setTradeLog(saved.tradeLog);
     setDarkMode(loadFromStorage<boolean>(THEME_KEY, true));
   }, []);
 
   useEffect(() => {
-    saveToStorage(STATE_KEY, { capital, mode, universe, manualAsset, tradeLog });
-  }, [capital, mode, universe, manualAsset, tradeLog]);
+    saveToStorage(STATE_KEY, { capital, mode, manualAsset, tradeLog });
+  }, [capital, mode, manualAsset, tradeLog]);
 
   useEffect(() => {
     saveToStorage(THEME_KEY, darkMode);
-    if (darkMode) {
-      document.documentElement.classList.remove('light-mode');
-    } else {
-      document.documentElement.classList.add('light-mode');
-    }
+    document.documentElement.classList.toggle('light-mode', !darkMode);
   }, [darkMode]);
 
+  // Live quote polling
   useEffect(() => {
-    const loadQuotes = async () => {
+    const load = async () => {
       try {
-        const response = await fetch('/api/quotes');
-        if (!response.ok) return;
-        const data = (await response.json()) as QuoteResponse;
-        setQuoteData(data);
-      } catch {
-        // ignore
-      }
+        const res = await fetch('/api/quotes');
+        if (!res.ok) return;
+        setQuoteData((await res.json()) as QuoteResponse);
+      } catch { /* ignore */ }
     };
-
-    loadQuotes();
-    const interval = window.setInterval(loadQuotes, 15000);
-    return () => window.clearInterval(interval);
+    load();
+    const id = window.setInterval(load, 15000);
+    return () => window.clearInterval(id);
   }, []);
 
   const todayLoss = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return tradeLog
-      .filter((entry) => entry.timestamp.slice(0, 10) === today)
-      .reduce((sum, entry) => sum + (entry.result ?? 0), 0);
+      .filter((e) => e.timestamp.slice(0, 10) === today)
+      .reduce((sum, e) => sum + (e.result ?? 0), 0);
   }, [tradeLog]);
 
   const stopTrading = todayLoss <= -(capital * 0.06);
 
   const runAnalysis = () => {
-    if (stopTrading) {
-      return;
-    }
-    setAnalysisResult(buildAnalysisResult(capital, mode, universe, manualAsset, quoteData));
+    if (stopTrading) return;
+    setAnalysisResult(buildAnalysisResult(capital, mode, manualAsset, quoteData));
   };
 
   const saveTrade = (setupId: string) => {
     if (!analysisResult) return;
-    const setup = analysisResult.setups.find((item) => item.id === setupId);
+    const setup = analysisResult.setups.find((s) => s.id === setupId);
     if (!setup) return;
-
     const entry: TradeLogEntry = {
       id: `${Date.now()}-${setup.id}`,
       timestamp: new Date().toISOString(),
@@ -106,96 +106,127 @@ export default function TradeloftApp() {
       marketMode: mode,
       capital,
     };
-
-    setTradeLog((current) => [entry, ...current]);
+    setTradeLog((cur) => [entry, ...cur]);
   };
 
-  const updateTrade = (entry: TradeLogEntry) => {
-    setTradeLog((current) => current.map((item) => (item.id === entry.id ? entry : item)));
-  };
+  const updateTrade = (entry: TradeLogEntry) =>
+    setTradeLog((cur) => cur.map((t) => (t.id === entry.id ? entry : t)));
+
+  const deleteTrade = (id: string) =>
+    setTradeLog((cur) => cur.filter((t) => t.id !== id));
 
   const exportTradeLog = () => {
     const blob = new Blob([JSON.stringify(tradeLog, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'trade-log.json';
-    anchor.click();
+    const a = document.createElement('a');
+    a.href = url; a.download = 'trade-log.json'; a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="space-y-8">
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        <AnalysisRunner
-          capital={capital}
-          mode={mode}
-          universe={universe}
-          manualAsset={manualAsset}
-          onChangeMode={setMode}
-          onChangeUniverse={setUniverse}
-          onChangeCapital={setCapital}
-          onChangeManualAsset={setManualAsset}
-          onRunAnalysis={runAnalysis}
-          analysisResult={analysisResult}
-          stopTrading={stopTrading}
-          quoteData={quoteData}
-        />
-        <div className="space-y-4">
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-card">
-            <h2 className="text-xl font-semibold text-[var(--text-primary)]">Dashboard-Übersicht</h2>
-            <div className="mt-5 space-y-3 text-sm text-[var(--text-secondary)]">
-              <p>Kapital: <span className="font-mono font-semibold text-[var(--text-primary)]">{capital.toFixed(2)} €</span></p>
-              <p>Tagesverlust-Limit: <span className="font-mono font-semibold text-[var(--warning)]">{(capital * 0.06).toFixed(2)} €</span></p>
-              <p className={stopTrading ? 'font-semibold text-[var(--loss)]' : ''}>
-                {stopTrading ? '⛔ HANDELSSTOPP: Tagesverlust-Limit erreicht.' : `Tagesverlust heute: ${todayLoss.toFixed(2)} €`}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setDarkMode((current) => !current)}
-              className="btn-primary mt-6"
-            >
-              {darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
-            </button>
-          </div>
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-card">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-[var(--text-primary)]">Setups speichern</h2>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">Speichere ein Setup aus der Analyse in deinem Trade-Log.</p>
-              </div>
-              <button type="button" onClick={exportTradeLog} className="btn-primary">
-                Export JSON
-              </button>
+        {/* ── Header ── */}
+        <header className="sticky top-0 z-40 mb-8 rounded-b-3xl border border-[var(--border)] bg-[var(--bg-secondary)] px-5 py-5 shadow-card" style={{ backdropFilter: 'blur(12px)' }}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.45em] text-[var(--accent-cyan)]">Tradeloft</p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[var(--text-primary)]">Professionelles Intraday-Trading</h1>
             </div>
-            <div className="mt-4 space-y-3">
-              {analysisResult?.setups.map((setup) => (
+
+            {/* Tab navigation */}
+            <nav className="flex flex-wrap items-center gap-2">
+              {TABS.map((tab) => (
                 <button
-                  key={setup.id}
+                  key={tab.id}
                   type="button"
-                  onClick={() => saveTrade(setup.id)}
-                  className="w-full rounded-3xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 py-4 text-left transition hover:border-[var(--accent-cyan)]"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    activeTab === tab.id
+                      ? 'bg-[var(--accent-cyan)] text-[var(--btn-text)]'
+                      : 'btn-ghost'
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Platz {setup.rank}</p>
-                      <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">{setup.asset} · {setup.direction}</p>
-                    </div>
-                    <span className="rank-badge-1 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">Speichern</span>
-                  </div>
+                  {tab.label}
                 </button>
               ))}
-              {!analysisResult && <p className="text-sm text-[var(--text-muted)]">Keine Analyse verfügbar.</p>}
-            </div>
+              <Link href="/regeln" className="btn-ghost min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold">
+                Regeln
+              </Link>
+              <button
+                type="button"
+                onClick={() => setDarkMode((d) => !d)}
+                className="btn-ghost min-h-[40px] rounded-full px-3 py-2 text-sm"
+                title={darkMode ? 'Light Mode' : 'Dark Mode'}
+              >
+                {darkMode ? '☀️' : '🌙'}
+              </button>
+            </nav>
           </div>
-        </div>
-      </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr]">
-        <TradeLog tradeLog={tradeLog} onUpdateTrade={updateTrade} onExport={exportTradeLog} />
-        <CapitalTracker capital={capital} tradeLog={tradeLog} />
+          {/* Handelsstopp-Banner */}
+          {stopTrading && (
+            <div className="mt-4 rounded-2xl bg-[var(--loss)] px-4 py-3 text-sm font-semibold text-white">
+              ⛔ HANDELSSTOPP — Tagesverlust-Limit (6%) erreicht. Keine neuen Trades bis morgen.
+            </div>
+          )}
+        </header>
+
+        {/* ── Tab-Inhalte ── */}
+
+        {activeTab === 'analyse' && (
+          <AnalysisRunner
+            capital={capital}
+            mode={mode}
+            manualAsset={manualAsset}
+            onChangeMode={setMode}
+            onChangeCapital={setCapital}
+            onChangeManualAsset={setManualAsset}
+            onRunAnalysis={runAnalysis}
+            onSave={saveTrade}
+            analysisResult={analysisResult}
+            stopTrading={stopTrading}
+            quoteData={quoteData}
+          />
+        )}
+
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            {/* Kapital-Übersicht */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Aktuelles Kapital</p>
+                <p className="mt-2 font-mono text-3xl font-semibold text-[var(--text-primary)]">{capital.toFixed(2)} €</p>
+              </div>
+              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Tagesverlust heute</p>
+                <p className={`mt-2 font-mono text-3xl font-semibold ${todayLoss < 0 ? 'text-[var(--loss)]' : 'text-[var(--gain)]'}`}>
+                  {todayLoss.toFixed(2)} €
+                </p>
+              </div>
+              <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-card">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">Tagesverlust-Limit</p>
+                <p className="mt-2 font-mono text-3xl font-semibold text-[var(--warning)]">{(capital * 0.06).toFixed(2)} €</p>
+              </div>
+            </div>
+            <LiveQuotes quoteData={quoteData} />
+          </div>
+        )}
+
+        {activeTab === 'tradelog' && (
+          <TradeLog
+            tradeLog={tradeLog}
+            onUpdateTrade={updateTrade}
+            onDeleteTrade={deleteTrade}
+            onExport={exportTradeLog}
+          />
+        )}
+
+        {activeTab === 'kapital' && (
+          <CapitalTracker capital={capital} tradeLog={tradeLog} />
+        )}
+
       </div>
     </div>
   );
