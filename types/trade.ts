@@ -4,7 +4,7 @@ export type UniverseMode = 'Standard' | 'Erweitert' | 'Manuell';
 export type PricePoint = {
   symbol: string;
   name: string;
-  source: 'CoinGecko' | 'Finnhub';
+  source: 'CoinMarketCap' | 'Finnhub';
   price: number | null;
   change24h?: number | null;
   lastUpdatedAt?: string | null;

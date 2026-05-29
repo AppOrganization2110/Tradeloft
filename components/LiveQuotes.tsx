@@ -69,7 +69,7 @@ export default function LiveQuotes({ quoteData }: { quoteData: QuoteResponse | n
         ) : null}
 
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          {(quoteData?.crypto ?? []).map((item) => (
+          {(quoteData?.crypto ?? []).filter((_, i) => i < 3).map((item) => (
             <div key={item.symbol} className="rounded-3xl border border-[var(--border)] bg-[var(--bg-tertiary)] p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
